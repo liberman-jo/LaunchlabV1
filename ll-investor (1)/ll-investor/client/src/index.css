@@ -1,0 +1,22 @@
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#F8F8F8;--surface:#FFFFFF;--dark:#0A0F1E;--border:#E2E4E9;
+  --text:#0A0F1E;--muted:#64748B;--subtle:#94A3B8;
+  --disc:#1E3A8A;--disc-bg:#EFF6FF;
+  --crea:#0369A1;--crea-bg:#E0F2FE;
+  --mktg:#1E40AF;--mktg-bg:#EFF6FF;
+  --mgmt:#065F46;--mgmt-bg:#ECFDF5;
+  --ok:#059669;--ok-bg:#ECFDF5;
+  --warn:#B45309;--warn-bg:#FFFBEB;
+  --err:#DC2626;--err-bg:#FEF2F2;
+  --gold:#D4AF37;--gold-bg:#FEFCE8;
+  --font-head:'DM Serif Display',Georgia,serif;
+  --font-body:'Inter',sans-serif;
+}
+body{font-family:var(--font-body);background:var(--bg);color:var(--text);min-height:100vh;-webkit-font-smoothing:antialiased}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+.spinner{width:32px;height:32px;border-radius:50%;border:2px solid var(--disc);border-top-color:transparent;animation:spin 0.8s linear infinite}
+.fade-in{animation:fadeIn 0.2s ease}
+input,textarea,select,button{font-family:var(--font-body);font-size:14px}
+::-webkit-scrollbar{width:4px}::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
