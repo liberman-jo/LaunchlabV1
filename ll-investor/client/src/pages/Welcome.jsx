@@ -95,13 +95,13 @@ export default function Welcome() {
             <div style={{ display:"flex", gap:16 }}>
               <div>
                 <div style={{ fontSize:10, color:"#ffffff40", marginBottom:2 }}>EMAIL</div>
-                <div style={{ fontSize:13, color:"#ffffffcc", fontFamily:"monospace" }}>jo@launchlab.demo</div>
+                <div style={{ fontSize:13, color:"#ffffffcc", fontFamily:"monospace" }}>libermanjo@gmail.com</div>
               </div>
               <div>
                 <div style={{ fontSize:10, color:"#ffffff40", marginBottom:2 }}>PASSWORD</div>
                 <div style={{ fontSize:13, color:"#ffffffcc", fontFamily:"monospace" }}>12345678</div>
               </div>
-              <button onClick={()=>setForm(p=>({...p,email:"jo@launchlab.demo",password:"12345678"}))} style={{ marginLeft:"auto", background:"#D4AF37", color:"#0A0F1E", border:"none", borderRadius:6, padding:"6px 12px", fontSize:11, fontWeight:600, cursor:"pointer" }}>Use demo</button>
+              <button onClick={()=>setForm(p=>({...p,email:"libermanjo@gmail.com",password:"12345678"}))} style={{ marginLeft:"auto", background:"#D4AF37", color:"#0A0F1E", border:"none", borderRadius:6, padding:"6px 12px", fontSize:11, fontWeight:600, cursor:"pointer" }}>Use demo</button>
             </div>
           </div>
           <button onClick={submit} disabled={loading} style={{ ...S.btn("var(--dark)","#fff",14), width:"100%", padding:"13px", borderRadius:8, marginTop:16, opacity:loading?0.7:1 }}>

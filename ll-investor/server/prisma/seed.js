@@ -243,7 +243,7 @@ const DEMO_TASKS = [
 async function seed() {
   console.log("[Seed] Checking demo account...");
 
-  const existing = await prisma.user.findUnique({ where: { email: "jo@launchlab.demo" } });
+  const existing = await prisma.user.findUnique({ where: { email: "libermanjo@gmail.com" } });
   if (existing) {
     console.log("[Seed] Demo account exists — skipping.");
     return;
@@ -253,7 +253,7 @@ async function seed() {
 
   const password = await bcrypt.hash("12345678", 12);
   const user = await prisma.user.create({
-    data: { name: "Jo Liberman", email: "jo@launchlab.demo", password, goal: "build_company" },
+    data: { name: "Jo Liberman", email: "libermanjo@gmail.com", password, goal: "build_company" },
   });
 
   // Create subscription (Pro plan)
@@ -346,7 +346,7 @@ async function seed() {
   }
 
   console.log("[Seed] Demo account created successfully.");
-  console.log("[Seed] Login: jo@launchlab.demo / 12345678");
+  console.log("[Seed] Login: libermanjo@gmail.com / 12345678");
 }
 
 module.exports = { seed };
