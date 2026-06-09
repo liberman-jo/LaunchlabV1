@@ -90,7 +90,21 @@ export default function Welcome() {
               <input type="password" value={form.password} onChange={e=>up("password",e.target.value)} placeholder={mode==="register"?"8+ characters":""} style={S.inp()} onKeyDown={e=>e.key==="Enter"&&submit()} />
             </div>
           </div>
-          <button onClick={submit} disabled={loading} style={{ ...S.btn("var(--dark)","#fff",14), width:"100%", padding:"13px", borderRadius:8, marginTop:24, opacity:loading?0.7:1 }}>
+          <div style={{ background:"#D4AF3712", border:"1px solid #D4AF3730", borderRadius:8, padding:"12px 16px", marginTop:20 }}>
+            <div style={{ fontSize:10, color:"#D4AF37", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:8 }}>Investor demo account</div>
+            <div style={{ display:"flex", gap:16 }}>
+              <div>
+                <div style={{ fontSize:10, color:"#ffffff40", marginBottom:2 }}>EMAIL</div>
+                <div style={{ fontSize:13, color:"#ffffffcc", fontFamily:"monospace" }}>jo@launchlab.demo</div>
+              </div>
+              <div>
+                <div style={{ fontSize:10, color:"#ffffff40", marginBottom:2 }}>PASSWORD</div>
+                <div style={{ fontSize:13, color:"#ffffffcc", fontFamily:"monospace" }}>12345678</div>
+              </div>
+              <button onClick={()=>setForm(p=>({...p,email:"jo@launchlab.demo",password:"12345678"}))} style={{ marginLeft:"auto", background:"#D4AF37", color:"#0A0F1E", border:"none", borderRadius:6, padding:"6px 12px", fontSize:11, fontWeight:600, cursor:"pointer" }}>Use demo</button>
+            </div>
+          </div>
+          <button onClick={submit} disabled={loading} style={{ ...S.btn("var(--dark)","#fff",14), width:"100%", padding:"13px", borderRadius:8, marginTop:16, opacity:loading?0.7:1 }}>
             {loading?"Please wait...":(mode==="login"?"Sign in":"Start free trial")}
           </button>
           <p style={{ textAlign:"center", fontSize:13, color:"var(--muted)", marginTop:18 }}>

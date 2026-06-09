@@ -55,6 +55,8 @@ app.use((err, req, res, next) => {
   res.status(err.status || 500).json({ error: err.message || "Internal server error" });
 });
 
+const { seed } = require("./prisma/seed");
+
 async function start() {
   await prisma.$connect();
   // Auto-run migrations in production
@@ -62,6 +64,7 @@ async function start() {
     const { execSync } = require("child_process");
     try { execSync("npx prisma db push --accept-data-loss", { cwd: __dirname, stdio: "inherit" }); } catch {}
   }
+    await seed().catch(e => console.warn("[Seed] Warning:", e.message));
   app.listen(PORT, () => console.log(`LaunchLab running on port ${PORT}`));
 }
 

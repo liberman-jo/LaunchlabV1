@@ -69,6 +69,7 @@ export default function Dashboard() {
                     <div>
                       <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:4 }}>
                         <span style={{ fontFamily:FH, fontWeight:600, fontSize:16 }}>{b.name}</span>
+                          {b.name==="LocalPulse Media" && <span style={{ background:"#D4AF3720",color:"#D4AF37",fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:20,textTransform:"uppercase",letterSpacing:"0.04em",border:"1px solid #D4AF3740" }}>Live demo</span>}
                         <span style={{ background:b.status==="live"?C.okBg:C.warnBg, color:b.status==="live"?C.ok:C.warn, fontSize:10, fontWeight:600, padding:"2px 8px", borderRadius:20, textTransform:"uppercase", letterSpacing:"0.3px" }}>
                           {b.status==="live" ? "Live" : "Setup"}
                         </span>
