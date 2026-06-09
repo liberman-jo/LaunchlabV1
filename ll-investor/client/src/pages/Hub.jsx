@@ -2,179 +2,274 @@ import { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import useStore from "../lib/store";
 import { api } from "../lib/api";
-import { C, FH, FB, btn, btnO, card, badge, GuidePanel, DownloadBtn, Spinner, ErrorBox } from "../components";
+import { C, FH, FB, btn, btnO, card, GuidePanel, DownloadBtn, Spinner } from "../components";
 
 const MODE_CYCLE = ["Manual","Approve & proceed","Full auto"];
 
 function CSSBar({ data, valueKey, labelKey, color="#D4AF37", prefix="$" }) {
   const max = Math.max(...data.map(d=>d[valueKey]),1);
   return (
-    <div style={{display:"flex",alignItems:"flex-end",gap:8,height:120,paddingTop:8}}>
-      {data.map((d,i)=>{
-        const pct=(d[valueKey]/max)*100;
-        return (
-          <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
-            <div style={{fontSize:10,color:"#ffffff50",fontFamily:FB}}>{prefix}{Number(d[valueKey]).toLocaleString()}</div>
-            <div style={{width:"100%",background:color,borderRadius:"3px 3px 0 0",height:`${pct}%`,minHeight:4}}/>
-            <div style={{fontSize:10,color:"#ffffff40",fontFamily:FB,textAlign:"center"}}>{d[labelKey]}</div>
-          </div>
-        );
-      })}
+    <div style={{display:"flex",alignItems:"flex-end",gap:8,height:100,paddingTop:8}}>
+      {data.map((d,i)=>(
+        <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
+          <div style={{fontSize:10,color:"#ffffff50",fontFamily:FB}}>{prefix}{Number(d[valueKey]).toLocaleString()}</div>
+          <div style={{width:"100%",background:color,borderRadius:"3px 3px 0 0",height:`${(d[valueKey]/max)*100}%`,minHeight:4}}/>
+          <div style={{fontSize:10,color:"#ffffff40",fontFamily:FB}}>{d[labelKey]}</div>
+        </div>
+      ))}
     </div>
   );
 }
 
-// ── LIVE SITE PANEL ───────────────────────────────────────────────────────────
-function LiveSitePanel({ businessId }) {
-  const [status,       setStatus]       = useState(null);   // null=loading, {deployed,liveUrl,...}
-  const [deploying,    setDeploying]    = useState(false);
-  const [updating,     setUpdating]     = useState(false);
-  const [updateLog,    setUpdateLog]    = useState([]);
-  const [instructions, setInstructions] = useState("");
-  const [error,        setError]        = useState("");
-  const pollRef = useRef(null);
+// ── PRIORITY BADGE ────────────────────────────────────────────────────────────
+function PriorityBadge({ level }) {
+  const colors = { high:["#EF4444","#FEF2F2"], medium:["#D97706","#FFFBEB"], low:["#6B7280","#F3F4F6"] };
+  const [c,bg] = colors[level]||colors.low;
+  return <span style={{background:bg,color:c,fontSize:9,fontWeight:700,padding:"2px 8px",borderRadius:20,textTransform:"uppercase",letterSpacing:"0.06em",fontFamily:FB}}>{level} priority</span>;
+}
 
-  useEffect(() => {
-    api.deploy.status(businessId).then(setStatus).catch(()=>setStatus({deployed:false}));
-    return () => clearInterval(pollRef.current);
-  }, [businessId]);
+// ── CHANNEL BADGE ─────────────────────────────────────────────────────────────
+function ChannelBadge({ type }) {
+  const map = {
+    website:  ["#0369A1","#E0F2FE","Website"],
+    social:   ["#7C3AED","#F5F3FF","Social Media"],
+    pricing:  ["#059669","#ECFDF5","Pricing"],
+    outreach: ["#D97706","#FFFBEB","Outreach"],
+    booking:  ["#DB2777","#FDF2F8","Bookings"],
+  };
+  const [c,bg,label] = map[type]||["#6B7280","#F3F4F6",type];
+  return <span style={{background:bg,color:c,fontSize:9,fontWeight:600,padding:"2px 8px",borderRadius:20,textTransform:"uppercase",letterSpacing:"0.04em",fontFamily:FB}}>{label}</span>;
+}
 
-  const log = msg => setUpdateLog(p=>[{time:new Date().toLocaleTimeString(),msg},...p].slice(0,8));
+// ── AGENT PIPELINE PANEL ──────────────────────────────────────────────────────
+function AgentPipeline({ businessId }) {
+  const [insights,      setInsights]      = useState([]);
+  const [marketingRunning, setMktRunning] = useState(false);
+  const [implementing,  setImplementing]  = useState(null); // insight id being implemented
+  const [implementedId, setImplementedId] = useState(null); // last implemented
+  const [liveUrl,       setLiveUrl]       = useState(null);
+  const [activityLog,   setActivityLog]   = useState([]);
+  const [agentStatus,   setAgentStatus]   = useState(null);
+  const [error,         setError]         = useState("");
+  const logRef = useRef(null);
 
-  const handleDeploy = async () => {
-    setDeploying(true); setError(""); log("Pushing website to Netlify...");
+  // Load activity log and deploy status on mount
+  useEffect(()=>{
+    api.agents.activity(businessId).then(d=>setActivityLog(d.activity||[])).catch(()=>{});
+    api.agents.status(businessId).then(d=>setAgentStatus(d.status)).catch(()=>{});
+    api.deploy.status(businessId).then(d=>{ if(d.liveUrl) setLiveUrl(d.liveUrl); }).catch(()=>{});
+  },[businessId]);
+
+  const runMarketing = async () => {
+    setMktRunning(true); setInsights([]); setError("");
     try {
-      const result = await api.deploy.deploy(businessId);
-      setStatus(result);
-      log(`Live at ${result.liveUrl}`);
-    } catch(e) {
-      setError(e.message);
-      log("Deploy failed: "+e.message);
-    }
-    setDeploying(false);
+      const { insights: data } = await api.agents.runMarketing(businessId);
+      setInsights(data);
+      const {activity} = await api.agents.activity(businessId);
+      setActivityLog(activity||[]);
+    } catch(e) { setError(e.message); }
+    setMktRunning(false);
   };
 
-  const handleUpdate = async () => {
-    setUpdating(true); setError("");
-    log("Marketing agent regenerating website content...");
+  const implement = async (insight) => {
+    setImplementing(insight.id); setError("");
     try {
-      const result = await api.deploy.update(businessId, instructions||undefined);
-      setStatus(result);
-      log(`Updated and live at ${result.liveUrl}`);
-      setInstructions("");
-    } catch(e) {
-      setError(e.message);
-      log("Update failed: "+e.message);
-    }
-    setUpdating(false);
+      const result = await api.agents.implement(businessId, insight);
+      setLiveUrl(result.liveUrl);
+      setImplementedId(insight.id);
+      const {activity} = await api.agents.activity(businessId);
+      setActivityLog(activity||[]);
+      // Refresh agent status
+      api.agents.status(businessId).then(d=>setAgentStatus(d.status)).catch(()=>{});
+    } catch(e) { setError(e.message); }
+    setImplementing(null);
   };
 
-  if (!status) return <div style={{display:"flex",justifyContent:"center",padding:32}}><Spinner color="#D4AF37"/></div>;
+  const agentClr = { marketing:"#D4AF37", management:"#4ADE80" };
 
   return (
     <div>
-      <div style={{fontFamily:"var(--font-head)",fontSize:26,letterSpacing:"-0.04em",marginBottom:4}}>Live Website</div>
-      <p style={{color:"var(--muted)",fontSize:14,marginBottom:28}}>
-        The marketing agent generates updated content and pushes it to a live Netlify URL — changes are visible within 30 seconds.
-      </p>
+      {/* Header */}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:28}}>
+        <div>
+          <div style={{fontFamily:"var(--font-head)",fontSize:26,letterSpacing:"-0.04em",marginBottom:4}}>Agent Pipeline</div>
+          <div style={{fontSize:13,color:"var(--muted)"}}>Marketing Agent analyzes data → Management Agent implements changes → Live site updates</div>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <div style={{width:6,height:6,borderRadius:"50%",background:"#4ADE80",animation:"pulse 2s infinite"}}/>
+          <span style={{fontSize:12,color:"var(--muted)",fontFamily:FB}}>Full auto mode</span>
+        </div>
+      </div>
 
-      {error && <div style={{...card("12px 16px"),background:"var(--err-bg)",border:"1px solid var(--err)25",marginBottom:16,fontSize:13,color:"var(--err)"}}>{error}</div>}
-
-      {/* Setup instructions if NETLIFY_TOKEN not configured */}
-      {error?.includes("NETLIFY_TOKEN") && (
-        <div style={{...card("16px 20px"),background:"#FEF3C7",border:"1px solid #D9770620",marginBottom:16}}>
-          <div style={{fontFamily:"var(--font-head)",fontSize:14,marginBottom:8}}>Add your Netlify token</div>
-          <ol style={{fontSize:13,color:"var(--muted)",lineHeight:2,paddingLeft:20}}>
-            <li>Go to <a href="https://app.netlify.com/user/applications" target="_blank" rel="noopener noreferrer" style={{color:"var(--disc)"}}>app.netlify.com/user/applications</a></li>
-            <li>Personal access tokens → New access token</li>
-            <li>Add <code style={{background:"#F3F4F6",padding:"1px 6px",borderRadius:4}}>NETLIFY_TOKEN=your-token</code> to Railway environment variables</li>
-            <li>Redeploy the Railway service</li>
-          </ol>
+      {/* Agent status bar */}
+      {agentStatus && (
+        <div style={{background:"#0A0F1E",borderRadius:12,padding:"16px 20px",marginBottom:20,border:"1px solid #D4AF3720"}}>
+          <div style={{display:"flex",gap:10,alignItems:"flex-start"}}>
+            <div style={{width:6,height:6,borderRadius:"50%",background:"#D4AF37",flexShrink:0,marginTop:5,animation:"pulse 2s infinite"}}/>
+            <div>
+              <div style={{fontSize:10,color:"#ffffff40",textTransform:"uppercase",letterSpacing:"0.08em",fontFamily:FB,marginBottom:4}}>AI Orchestrator — current status</div>
+              <div style={{fontSize:13,color:"#ffffffcc",fontFamily:FB,lineHeight:1.65}}>{agentStatus}</div>
+            </div>
+          </div>
         </div>
       )}
 
-      {/* Current deployment status */}
-      <div style={{...card("22px 24px"),background:"#0A0F1E",border:"1px solid #D4AF3720",marginBottom:16}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:status.deployed?16:0}}>
-          <div>
-            <div style={{fontSize:10,color:"#ffffff40",textTransform:"uppercase",letterSpacing:"0.08em",fontFamily:FB,marginBottom:8}}>Deployment status</div>
-            <div style={{display:"flex",alignItems:"center",gap:10}}>
-              <div style={{width:8,height:8,borderRadius:"50%",background:status.deployed?"#4ADE80":"#ffffff30",flexShrink:0,boxShadow:status.deployed?"0 0 8px #4ADE8099":undefined}}/>
-              <span style={{fontFamily:"var(--font-head)",fontSize:18,color:status.deployed?"#4ADE80":"#ffffff60"}}>
-                {status.deployed?"Live":"Not deployed yet"}
-              </span>
+      {error && (
+        <div style={{...card("12px 16px"),background:"#FEF2F2",border:"1px solid #DC262625",marginBottom:16,fontSize:13,color:"#DC2626"}}>
+          {error}
+          {error.includes("NETLIFY_TOKEN") && (
+            <div style={{marginTop:10,lineHeight:1.7}}>
+              <strong>To enable live deployment:</strong><br/>
+              1. Go to <a href="https://app.netlify.com/user/applications" target="_blank" rel="noopener noreferrer" style={{color:"#DC2626"}}>app.netlify.com/user/applications</a> → Personal access tokens → New token<br/>
+              2. Add <code style={{background:"#fee2e2",padding:"1px 5px",borderRadius:3}}>NETLIFY_TOKEN=your-token</code> to Railway environment variables
             </div>
-          </div>
-          {!status.deployed && (
-            <button onClick={handleDeploy} disabled={deploying} style={{...btn("#D4AF37","#0A0F1E",13),opacity:deploying?0.7:1}}>
-              {deploying?"Deploying...":"Deploy to Netlify"}
-            </button>
+          )}
+          {error.includes("Generate the website") && (
+            <div style={{marginTop:8}}>Go to the <strong>Content</strong> tab and click Generate next to Business Website first.</div>
           )}
         </div>
+      )}
 
-        {status.deployed && status.liveUrl && (
-          <>
-            <div style={{borderTop:"1px solid #ffffff10",paddingTop:16,marginBottom:16}}>
-              <div style={{fontSize:10,color:"#ffffff40",textTransform:"uppercase",letterSpacing:"0.08em",fontFamily:FB,marginBottom:6}}>Live URL</div>
-              <a href={status.liveUrl} target="_blank" rel="noopener noreferrer"
-                style={{fontFamily:"var(--font-head)",fontSize:20,color:"#D4AF37",letterSpacing:"-0.02em",textDecoration:"none",wordBreak:"break-all"}}>
-                {status.liveUrl} ↗
-              </a>
-              {status.lastDeployed && (
-                <div style={{fontSize:11,color:"#ffffff30",marginTop:6,fontFamily:FB}}>
-                  Last updated: {new Date(status.lastDeployed).toLocaleString()}
-                </div>
-              )}
-            </div>
-          </>
-        )}
-      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,alignItems:"start"}}>
 
-      {/* Marketing agent update panel */}
-      {status.deployed && (
-        <div style={card()}>
-          <div style={{fontFamily:"var(--font-head)",fontSize:16,marginBottom:6}}>Update website with marketing agent</div>
-          <p style={{fontSize:13,color:"var(--muted)",lineHeight:1.65,marginBottom:20}}>
-            The AI regenerates the website content and pushes it live automatically. Give it direction or leave blank for a general refresh. Changes are visible at the live URL within 30 seconds.
+        {/* ── LEFT: MARKETING AGENT ─────────────────────────────────────────── */}
+        <div>
+          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14}}>
+            <div style={{width:8,height:8,borderRadius:"50%",background:"#D4AF37"}}/>
+            <span style={{fontFamily:"var(--font-head)",fontSize:16}}>Marketing Agent</span>
+          </div>
+          <p style={{fontSize:13,color:"var(--muted)",marginBottom:16,lineHeight:1.65}}>
+            Continuously analyzes performance data — engagement rates, lead conversion, client metrics, content performance — and surfaces the highest-impact opportunities.
           </p>
 
-          <div style={{marginBottom:14}}>
-            <label style={{fontSize:12,fontWeight:600,color:"var(--muted)",display:"block",marginBottom:6,textTransform:"uppercase",letterSpacing:"0.06em"}}>
-              Update instructions (optional)
-            </label>
-            <textarea
-              value={instructions}
-              onChange={e=>setInstructions(e.target.value)}
-              placeholder="e.g. Add a holiday promotion — 20% off in January. Emphasize the Growth package. Add a new testimonial from a coffee shop client."
-              rows={3}
-              style={{width:"100%",padding:"12px 14px",borderRadius:8,border:"1.5px solid var(--border)",fontSize:14,fontFamily:FB,color:"var(--text)",background:"var(--surface)",outline:"none",boxSizing:"border-box",resize:"vertical",lineHeight:1.6}}
-            />
-          </div>
+          <button
+            onClick={runMarketing}
+            disabled={marketingRunning}
+            style={{...btn(marketingRunning?"#6B7280":"#0A0F1E","#D4AF37",14),width:"100%",marginBottom:16,display:"flex",alignItems:"center",justifyContent:"center",gap:10}}
+          >
+            {marketingRunning && <span style={{width:14,height:14,borderRadius:"50%",border:"2px solid #D4AF3760",borderTopColor:"#D4AF37",animation:"spin 0.7s linear infinite",flexShrink:0}}/>}
+            {marketingRunning?"Analyzing performance data...":"Run marketing analysis"}
+          </button>
 
-          <div style={{display:"flex",gap:12,alignItems:"center"}}>
-            <button onClick={handleUpdate} disabled={updating} style={{...btn(updating?"#6B7280":"#0A0F1E","#D4AF37",14),opacity:updating?0.8:1,display:"flex",alignItems:"center",gap:10}}>
-              {updating && <span style={{width:14,height:14,borderRadius:"50%",border:"2px solid #D4AF3750",borderTopColor:"#D4AF37",animation:"spin 0.7s linear infinite",flexShrink:0}}/>}
-              {updating?"Regenerating and deploying...":"Update live website"}
-            </button>
-            <button onClick={handleDeploy} disabled={deploying} style={{...btnO("var(--muted)",13),opacity:deploying?0.7:1}}>
-              {deploying?"Redeploying...":"Redeploy current version"}
-            </button>
-          </div>
+          {marketingRunning && (
+            <div style={{...card("14px 16px"),background:"#0A0F1E",border:"1px solid #D4AF3720",marginBottom:12}}>
+              {["Scanning engagement metrics across all client campaigns","Comparing lead conversion rates against industry benchmarks","Identifying underperforming content and high-performing patterns","Generating prioritized recommendations"].map((step,i)=>(
+                <div key={i} style={{display:"flex",gap:10,alignItems:"center",padding:"6px 0",opacity:0.7+i*0.075}}>
+                  <div style={{width:4,height:4,borderRadius:"50%",background:"#D4AF37",flexShrink:0,animation:"pulse 1.5s infinite",animationDelay:`${i*0.3}s`}}/>
+                  <span style={{fontSize:12,color:"#ffffffaa",fontFamily:FB}}>{step}</span>
+                </div>
+              ))}
+            </div>
+          )}
 
-          {/* Activity log */}
-          {updateLog.length>0 && (
-            <div style={{marginTop:20,padding:"14px 16px",background:"#F8F8F8",borderRadius:8,border:"1px solid var(--border)"}}>
-              <div style={{fontSize:11,fontWeight:600,color:"var(--muted)",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:10}}>Deploy log</div>
-              {updateLog.map((entry,i)=>(
-                <div key={i} style={{display:"flex",gap:10,fontSize:12,fontFamily:"monospace",color:i===0?"var(--text)":"var(--muted)",marginBottom:4}}>
-                  <span style={{color:"var(--subtle)",flexShrink:0}}>{entry.time}</span>
-                  <span>{entry.msg}</span>
+          {insights.length>0 && (
+            <div style={{display:"flex",flexDirection:"column",gap:10}}>
+              {insights.map((insight,i)=>(
+                <div key={i} style={{...card("16px"),border:`1px solid ${insight.priority==="high"?"#EF444430":C.border}`,background:implementedId===insight.id?"#F0FDF4":undefined}}>
+                  <div style={{display:"flex",gap:8,marginBottom:8,flexWrap:"wrap"}}>
+                    <PriorityBadge level={insight.priority}/>
+                    <ChannelBadge type={insight.type}/>
+                    {implementedId===insight.id && <span style={{background:"#ECFDF5",color:"#059669",fontSize:9,fontWeight:700,padding:"2px 8px",borderRadius:20,textTransform:"uppercase",letterSpacing:"0.06em",fontFamily:FB}}>Implemented</span>}
+                  </div>
+                  <div style={{fontSize:12,fontWeight:600,color:"var(--muted)",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:4,fontFamily:FB}}>Observation</div>
+                  <p style={{fontSize:13,color:"var(--text)",lineHeight:1.6,marginBottom:10,fontFamily:FB}}>{insight.agentObservation}</p>
+                  <div style={{fontSize:12,fontWeight:600,color:"var(--muted)",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:4,fontFamily:FB}}>Recommendation</div>
+                  <p style={{fontSize:13,color:"var(--text)",lineHeight:1.6,marginBottom:10,fontFamily:FB}}>{insight.recommendation}</p>
+                  <div style={{background:"#F0FDF4",borderRadius:8,padding:"8px 12px",marginBottom:12,fontSize:12,color:"#166534",fontFamily:FB}}>
+                    Expected: {insight.expectedImpact}
+                  </div>
+                  {implementedId!==insight.id && (
+                    <button
+                      onClick={()=>implement(insight)}
+                      disabled={!!implementing}
+                      style={{...btn(implementing===insight.id?"#6B7280":"#0A0F1E","#fff",12),width:"100%",display:"flex",alignItems:"center",justifyContent:"center",gap:8,opacity:implementing&&implementing!==insight.id?0.5:1}}
+                    >
+                      {implementing===insight.id && <span style={{width:12,height:12,borderRadius:"50%",border:"2px solid #ffffff50",borderTopColor:"#fff",animation:"spin 0.7s linear infinite",flexShrink:0}}/>}
+                      {implementing===insight.id?"Management agent implementing...":"→ Hand off to management agent"}
+                    </button>
+                  )}
                 </div>
               ))}
             </div>
           )}
         </div>
-      )}
+
+        {/* ── RIGHT: MANAGEMENT AGENT + LIVE SITE ──────────────────────────── */}
+        <div>
+          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14}}>
+            <div style={{width:8,height:8,borderRadius:"50%",background:"#4ADE80"}}/>
+            <span style={{fontFamily:"var(--font-head)",fontSize:16}}>Management Agent</span>
+          </div>
+          <p style={{fontSize:13,color:"var(--muted)",marginBottom:16,lineHeight:1.65}}>
+            Receives insights from the marketing agent and implements them across active channels. For this demo, changes are applied to the live website. In production the same pipeline covers social posting, booking availability, and email campaigns.
+          </p>
+
+          {/* Live site status */}
+          <div style={{background:"#0A0F1E",borderRadius:12,padding:"18px 20px",marginBottom:14,border:`1px solid ${liveUrl?"#4ADE8030":"#ffffff08"}`}}>
+            <div style={{fontSize:10,color:"#ffffff40",textTransform:"uppercase",letterSpacing:"0.08em",fontFamily:FB,marginBottom:8}}>Live implementation channel</div>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:liveUrl?12:0}}>
+              <div style={{width:6,height:6,borderRadius:"50%",background:liveUrl?"#4ADE80":"#ffffff25",flexShrink:0,boxShadow:liveUrl?"0 0 6px #4ADE8088":undefined}}/>
+              <span style={{fontFamily:"var(--font-head)",fontSize:15,color:liveUrl?"#4ADE80":"#ffffff50"}}>
+                {liveUrl?"Website — live":"Website — not deployed"}
+              </span>
+            </div>
+            {liveUrl && (
+              <a href={liveUrl} target="_blank" rel="noopener noreferrer"
+                style={{display:"block",fontSize:13,color:"#D4AF37",fontFamily:FB,wordBreak:"break-all",textDecoration:"none"}}>
+                {liveUrl} ↗
+              </a>
+            )}
+            {!liveUrl && (
+              <div style={{fontSize:12,color:"#ffffff30",marginTop:6,fontFamily:FB}}>
+                Will be created automatically when the first insight is implemented
+              </div>
+            )}
+          </div>
+
+          {/* Other channels (illustrative) */}
+          <div style={{...card("14px 16px"),marginBottom:14}}>
+            <div style={{fontSize:11,fontWeight:600,color:"var(--muted)",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:12,fontFamily:FB}}>Other implementation channels</div>
+            {[
+              {name:"Instagram & Facebook",status:"Available",note:"Would post updated content and schedule campaign"},
+              {name:"Email campaign",      status:"Available",note:"Would send targeted message to client list"},
+              {name:"Calendly bookings",   status:"Available",note:"Would adjust availability and pricing"},
+              {name:"Google Business",     status:"Available",note:"Would update listing and post announcement"},
+            ].map((ch,i,arr)=>(
+              <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",padding:"8px 0",borderBottom:i<arr.length-1?`1px solid var(--border)`:"none"}}>
+                <div>
+                  <div style={{fontSize:13,fontWeight:500,fontFamily:FB}}>{ch.name}</div>
+                  <div style={{fontSize:11,color:"var(--muted)",fontFamily:FB,marginTop:1}}>{ch.note}</div>
+                </div>
+                <span style={{background:"#F0FDF4",color:"#059669",fontSize:10,fontWeight:600,padding:"2px 8px",borderRadius:20,textTransform:"uppercase",letterSpacing:"0.04em",flexShrink:0,fontFamily:FB}}>{ch.status}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Activity log */}
+          <div style={{...card("16px"),background:"#0A0F1E",border:"1px solid #ffffff08"}}>
+            <div style={{fontSize:11,fontWeight:600,color:"#ffffff40",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:12,fontFamily:FB}}>Agent activity log</div>
+            {activityLog.length===0 ? (
+              <div style={{fontSize:12,color:"#ffffff30",fontFamily:FB}}>No activity yet — run the marketing agent to begin</div>
+            ) : (
+              activityLog.slice(0,8).map((entry,i)=>(
+                <div key={i} style={{display:"flex",gap:10,alignItems:"flex-start",padding:"7px 0",borderBottom:i<Math.min(activityLog.length,8)-1?"1px solid #ffffff08":"none"}}>
+                  <div style={{width:6,height:6,borderRadius:"50%",background:agentClr[entry.agent]||"#ffffff40",flexShrink:0,marginTop:4}}/>
+                  <div style={{flex:1}}>
+                    <div style={{display:"flex",gap:8,alignItems:"baseline",marginBottom:2}}>
+                      <span style={{fontSize:10,color:agentClr[entry.agent]||"#ffffff50",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.05em",fontFamily:FB}}>{entry.agent}</span>
+                      <span style={{fontSize:12,color:"#ffffffcc",fontFamily:FB,fontWeight:500}}>{entry.action}</span>
+                    </div>
+                    <div style={{fontSize:11,color:"#ffffff40",fontFamily:FB,lineHeight:1.5}}>{entry.detail}</div>
+                  </div>
+                  <div style={{fontSize:10,color:"#ffffff25",fontFamily:FB,flexShrink:0}}>
+                    {new Date(entry.timestamp).toLocaleTimeString()}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -182,7 +277,7 @@ function LiveSitePanel({ businessId }) {
 // ── MAIN HUB ──────────────────────────────────────────────────────────────────
 export default function Hub() {
   const { id: businessId } = useParams();
-  const [searchParams]  = useSearchParams();
+  const [searchParams] = useSearchParams();
   const { user, hubModes, setHubMode } = useStore();
   const [business,   setBusiness]   = useState(null);
   const [outputs,    setOutputs]    = useState([]);
@@ -191,9 +286,9 @@ export default function Hub() {
   const [loading,    setLoading]    = useState(true);
   const [genLoading, setGenLoading] = useState({});
   const [genError,   setGenError]   = useState("");
-  const [hubTab,     setHubTab]     = useState(searchParams.get("tab")||"overview");
+  const [hubTab,     setHubTab]     = useState(searchParams.get("tab")||"agents");
   const [chatOpen,   setChatOpen]   = useState(false);
-  const [chatMsgs,   setChatMsgs]   = useState([{role:"ai",text:"Welcome to the LocalPulse Media dashboard. This is a live demo — all data reflects a real operating business. Ask me anything."}]);
+  const [chatMsgs,   setChatMsgs]   = useState([{role:"ai",text:"Welcome. I have full visibility into both agents. Ask me about current marketing insights, implementation status, or business performance."}]);
   const navigate = useNavigate();
 
   const modes = hubModes[businessId]||{discovery:"Manual",creation:"Approve & proceed",marketing:"Full auto",management:"Full auto"};
@@ -210,33 +305,32 @@ export default function Hub() {
     }).catch(console.error).finally(()=>setLoading(false));
   },[businessId]);
 
-  const idea   = (()=>{try{return JSON.parse(business?.ideaData||"{}");}catch{return {};}})();
-  const getOutput = type => outputs.find(o=>o.type===type);
-  const isConn = p => integs.find(i=>i.provider===p)?.status==="connected";
+  const idea      = (()=>{try{return JSON.parse(business?.ideaData||"{}");}catch{return {};}})();
+  const getOutput = type=>outputs.find(o=>o.type===type);
+  const isConn    = p=>integs.find(i=>i.provider===p)?.status==="connected";
 
-  const generate = async (type, apiCall) => {
+  const generate  = async (type,apiCall)=>{
     setGenLoading(p=>({...p,[type]:true})); setGenError("");
-    try {
-      const result = await apiCall(businessId);
-      const {output} = result;
+    try{
+      const {output}=await apiCall(businessId);
       setOutputs(p=>{const ex=p.find(o=>o.type===type);return ex?p.map(o=>o.type===type?output:o):[...p,output];});
-    } catch(e){setGenError(e.message);}
+    }catch(e){setGenError(e.message);}
     finally{setGenLoading(p=>({...p,[type]:false}));}
   };
 
-  const connectStripe = async()=>{try{const{url}=await api.integrations.stripe(businessId);window.open(url,"_blank");}catch(e){setGenError(e.message);}};
-  const connectGoogle = async()=>{try{const{url}=await api.integrations.googleAuth(businessId);window.open(url,"_blank");}catch(e){setGenError(e.message);}};
-  const disconnect    = async p=>{await api.integrations.disconnect(businessId,p).catch(()=>{});setIntegs(prev=>prev.map(i=>i.provider===p?{...i,status:"disconnected"}:i));};
-  const cycleMode     = stage=>{const cur=modes[stage]||"Manual";setHubMode(businessId,stage,MODE_CYCLE[(MODE_CYCLE.indexOf(cur)+1)%MODE_CYCLE.length]);};
-  const sendChat      = async msg=>{setChatMsgs(p=>[...p,{role:"user",text:msg}]);try{const{reply}=await api.generate.chat(msg,businessId);setChatMsgs(p=>[...p,{role:"ai",text:reply}]);}catch{setChatMsgs(p=>[...p,{role:"ai",text:"Sorry, couldn't process that."}]);}};
+  const connectStripe=async()=>{try{const{url}=await api.integrations.stripe(businessId);window.open(url,"_blank");}catch(e){setGenError(e.message);}};
+  const connectGoogle=async()=>{try{const{url}=await api.integrations.googleAuth(businessId);window.open(url,"_blank");}catch(e){setGenError(e.message);}};
+  const disconnect  =async p=>{await api.integrations.disconnect(businessId,p).catch(()=>{});setIntegs(prev=>prev.map(i=>i.provider===p?{...i,status:"disconnected"}:i));};
+  const cycleMode   =stage=>{const cur=modes[stage]||"Manual";setHubMode(businessId,stage,MODE_CYCLE[(MODE_CYCLE.indexOf(cur)+1)%MODE_CYCLE.length]);};
+  const sendChat    =async msg=>{setChatMsgs(p=>[...p,{role:"user",text:msg}]);try{const{reply}=await api.generate.chat(msg,businessId);setChatMsgs(p=>[...p,{role:"ai",text:reply}]);}catch{setChatMsgs(p=>[...p,{role:"ai",text:"Sorry, couldn't process that."}]);}};
 
   if(loading) return <div style={{display:"flex",minHeight:"100vh",alignItems:"center",justifyContent:"center",background:"#0A0F1E"}}><Spinner color="#D4AF37"/></div>;
 
   const navItems=[
+    {id:"agents",      label:"Agent Pipeline"},
     {id:"overview",    label:"Overview"},
     {id:"performance", label:"Performance"},
     {id:"clients",     label:"Clients"},
-    {id:"live-site",   label:"Live Site ↗"},
     {id:"content",     label:"Content"},
     {id:"integrations",label:"Integrations"},
     {id:"settings",    label:"Settings"},
@@ -244,7 +338,9 @@ export default function Hub() {
 
   return (
     <div style={{display:"flex",minHeight:"100vh",fontFamily:FB}}>
-      {/* Dark sidebar */}
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}`}</style>
+
+      {/* Sidebar */}
       <div style={{width:220,background:"#0A0F1E",display:"flex",flexDirection:"column",flexShrink:0,borderRight:"1px solid #ffffff08"}}>
         <div style={{padding:"22px 20px 16px",borderBottom:"1px solid #ffffff08"}}>
           <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14}}>
@@ -253,14 +349,14 @@ export default function Hub() {
           </div>
           <div style={{fontFamily:"var(--font-head)",fontWeight:700,fontSize:15,color:"#fff",marginBottom:4,lineHeight:1.2}}>{business?.name}</div>
           <div style={{display:"flex",alignItems:"center",gap:6}}>
-            <div style={{width:5,height:5,borderRadius:"50%",background:"#4ADE80"}}/>
+            <div style={{width:5,height:5,borderRadius:"50%",background:"#4ADE80",animation:"pulse 2s infinite"}}/>
             <span style={{fontSize:11,color:"#ffffff40"}}>{business?.location}</span>
           </div>
-          {business?.name==="LocalPulse Media"&&<div style={{marginTop:8,background:"#D4AF3720",border:"1px solid #D4AF3740",borderRadius:6,padding:"3px 8px",fontSize:10,color:"#D4AF37",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.06em",display:"inline-block"}}>Live demo</div>}
+          {business?.name==="LocalPulse Media" && <div style={{marginTop:8,background:"#D4AF3720",border:"1px solid #D4AF3740",borderRadius:6,padding:"3px 8px",fontSize:10,color:"#D4AF37",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.06em",display:"inline-block"}}>Live demo</div>}
         </div>
         <nav style={{padding:"12px 8px",flex:1}}>
           {navItems.map(({id,label})=>(
-            <div key={id} onClick={()=>setHubTab(id)} style={{padding:"9px 12px",borderRadius:7,marginBottom:2,background:hubTab===id?"#ffffff12":"transparent",color:hubTab===id?"#fff":id==="live-site"?"#D4AF37":"#ffffff45",cursor:"pointer",fontSize:13,fontWeight:hubTab===id?500:400,fontFamily:FB,transition:"all 0.12s",border:id==="live-site"?"1px solid #D4AF3730":"1px solid transparent"}}>
+            <div key={id} onClick={()=>setHubTab(id)} style={{padding:"9px 12px",borderRadius:7,marginBottom:2,background:hubTab===id?"#ffffff12":"transparent",color:hubTab===id?"#fff":id==="agents"?"#D4AF37":"#ffffff45",cursor:"pointer",fontSize:13,fontWeight:hubTab===id?500:400,fontFamily:FB,transition:"all 0.12s",border:id==="agents"?"1px solid #D4AF3720":"1px solid transparent"}}>
               {label}
             </div>
           ))}
@@ -274,10 +370,11 @@ export default function Hub() {
       {/* Main */}
       <div style={{flex:1,background:"#F8F8F8",overflowY:"auto"}}>
         <div style={{padding:"32px 36px 80px"}}>
-          <ErrorBox msg={genError} onRetry={()=>setGenError("")}/>
 
-          {/* LIVE SITE */}
-          {hubTab==="live-site" && <LiveSitePanel businessId={businessId}/>}
+          {genError && <div style={{...card("12px 16px"),background:"#FEF2F2",border:"1px solid #DC262625",marginBottom:16,fontSize:13,color:"#DC2626"}}>{genError}<button onClick={()=>setGenError("")} style={{marginLeft:12,background:"none",border:"none",cursor:"pointer",color:"#DC2626",textDecoration:"underline",fontSize:13}}>Dismiss</button></div>}
+
+          {/* AGENT PIPELINE — default tab */}
+          {hubTab==="agents" && <AgentPipeline businessId={businessId}/>}
 
           {/* OVERVIEW */}
           {hubTab==="overview" && metrics && (
@@ -285,9 +382,9 @@ export default function Hub() {
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:28}}>
                 <div>
                   <div style={{fontFamily:"var(--font-head)",fontSize:26,letterSpacing:"-0.04em",marginBottom:4}}>Business Overview</div>
-                  <div style={{fontSize:13,color:"var(--muted)"}}>LocalPulse Media &middot; December 2024 &middot; Month 7</div>
+                  <div style={{fontSize:13,color:"var(--muted)"}}>LocalPulse Media · December 2024 · Month 7</div>
                 </div>
-                <button onClick={()=>setHubTab("live-site")} style={{...btn("#0A0F1E","#D4AF37",13)}}>View live site ↗</button>
+                <button onClick={()=>setHubTab("agents")} style={{...btn("#0A0F1E","#D4AF37",13)}}>Open agent pipeline</button>
               </div>
               <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14,marginBottom:20}}>
                 {[
@@ -305,13 +402,11 @@ export default function Hub() {
               </div>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:14}}>
                 <div style={{background:"#0A0F1E",borderRadius:12,padding:"22px 24px",border:"1px solid #ffffff08"}}>
-                  <div style={{fontSize:13,fontWeight:500,color:"#fff",marginBottom:4,fontFamily:FB}}>MRR Growth</div>
-                  <div style={{fontSize:11,color:"#ffffff40",marginBottom:20,fontFamily:FB}}>7-month trend</div>
+                  <div style={{fontSize:13,fontWeight:500,color:"#fff",marginBottom:20,fontFamily:FB}}>MRR Growth — 7 months</div>
                   <CSSBar data={metrics.revenue.mrr_trend.map((v,i)=>({amount:v,month:metrics.revenue.mrr_labels[i]}))} valueKey="amount" labelKey="month" color="#D4AF37"/>
                 </div>
                 <div style={{background:"#0A0F1E",borderRadius:12,padding:"22px 24px",border:"1px solid #ffffff08"}}>
-                  <div style={{fontSize:13,fontWeight:500,color:"#fff",marginBottom:4,fontFamily:FB}}>This week</div>
-                  <div style={{fontSize:11,color:"#ffffff40",marginBottom:20,fontFamily:FB}}>Weekly revenue</div>
+                  <div style={{fontSize:13,fontWeight:500,color:"#fff",marginBottom:20,fontFamily:FB}}>Weekly Revenue</div>
                   <CSSBar data={metrics.revenue.weekly} valueKey="amount" labelKey="week" color="#4ADE80"/>
                 </div>
               </div>
@@ -322,7 +417,7 @@ export default function Hub() {
                   return(
                     <div key={i} style={{display:"flex",gap:12,alignItems:"flex-start",padding:"10px 0",borderBottom:i<metrics.activity.length-1?"1px solid #ffffff08":"none"}}>
                       <div style={{width:8,height:8,borderRadius:"50%",background:dotClr,flexShrink:0,marginTop:5}}/>
-                      <div style={{flex:1}}>
+                      <div>
                         <div style={{fontSize:13,color:"#ffffffcc",fontFamily:FB,lineHeight:1.5}}>{a.text}</div>
                         <div style={{fontSize:11,color:"#ffffff30",marginTop:2,fontFamily:FB}}>{a.time}</div>
                       </div>
@@ -337,23 +432,23 @@ export default function Hub() {
           {hubTab==="performance" && metrics && (
             <div>
               <div style={{fontFamily:"var(--font-head)",fontSize:26,letterSpacing:"-0.04em",marginBottom:4}}>Performance Analytics</div>
-              <div style={{fontSize:13,color:"var(--muted)",marginBottom:28}}>Social media, marketing, and operations</div>
+              <div style={{fontSize:13,color:"var(--muted)",marginBottom:28}}>Data the marketing agent analyzes to generate insights</div>
               {[
                 {title:"Social Media", items:[
                   {label:"Instagram followers",  value:metrics.social.instagram_followers.toLocaleString(),sub:`+${metrics.social.instagram_growth_30d}% this month`},
-                  {label:"Avg engagement rate",  value:`${metrics.social.avg_engagement_rate}%`,          sub:"Industry avg: 1.9%"},
-                  {label:"Avg Reel views",        value:metrics.social.reels_avg_views.toLocaleString(), sub:"Per Reel"},
-                  {label:"Posts this month",      value:metrics.social.posts_this_month,                 sub:"Across all clients"},
-                  {label:"Top post reach",        value:metrics.social.top_post_reach.toLocaleString(),  sub:"Single post"},
-                  {label:"Stories completion",    value:`${metrics.social.stories_completion_rate}%`,    sub:"Completion rate"},
+                  {label:"Avg engagement rate",  value:`${metrics.social.avg_engagement_rate}%`,sub:"Industry avg: 1.9%"},
+                  {label:"Avg Reel views",        value:metrics.social.reels_avg_views.toLocaleString(),sub:"Per Reel"},
+                  {label:"Posts this month",      value:metrics.social.posts_this_month,sub:"All clients"},
+                  {label:"Top post reach",        value:metrics.social.top_post_reach.toLocaleString(),sub:"Single post"},
+                  {label:"Stories completion",    value:`${metrics.social.stories_completion_rate}%`,sub:"Rate"},
                 ]},
                 {title:"Marketing & Leads", items:[
-                  {label:"Total reach (30d)",    value:metrics.marketing.total_reach_30d.toLocaleString(),    sub:"People reached"},
-                  {label:"Leads generated",      value:metrics.marketing.leads_generated,                     sub:"Strategy calls requested"},
-                  {label:"Calls booked",         value:metrics.marketing.strategy_calls_booked,               sub:"From marketing"},
-                  {label:"Lead conversion",      value:`${metrics.marketing.conversion_rate_pct}%`,           sub:"Lead to paying client"},
-                  {label:"Google views",         value:metrics.marketing.google_profile_views.toLocaleString(),sub:"Profile views"},
-                  {label:"Google calls",         value:metrics.marketing.google_calls,                        sub:"Calls generated"},
+                  {label:"Total reach (30d)",    value:metrics.marketing.total_reach_30d.toLocaleString(),sub:"People reached"},
+                  {label:"Leads generated",      value:metrics.marketing.leads_generated,sub:"Strategy calls"},
+                  {label:"Calls booked",         value:metrics.marketing.strategy_calls_booked,sub:"Confirmed"},
+                  {label:"Lead conversion",      value:`${metrics.marketing.conversion_rate_pct}%`,sub:"Close rate"},
+                  {label:"Google profile views", value:metrics.marketing.google_profile_views.toLocaleString(),sub:"This month"},
+                  {label:"Google calls",         value:metrics.marketing.google_calls,sub:"Generated"},
                 ]},
               ].map(({title,items})=>(
                 <div key={title} style={{marginBottom:28}}>
@@ -362,7 +457,7 @@ export default function Hub() {
                     {items.map(({label,value,sub})=>(
                       <div key={label} style={card()}>
                         <div style={{fontSize:10,color:"var(--muted)",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:6,fontFamily:FB}}>{label}</div>
-                        <div style={{fontFamily:"var(--font-head)",fontWeight:700,fontSize:26,letterSpacing:"-0.04em",marginBottom:4}}>{value}</div>
+                        <div style={{fontFamily:"var(--font-head)",fontWeight:700,fontSize:24,letterSpacing:"-0.04em",marginBottom:4}}>{value}</div>
                         <div style={{fontSize:12,color:"var(--muted)",fontFamily:FB}}>{sub}</div>
                       </div>
                     ))}
@@ -376,12 +471,12 @@ export default function Hub() {
           {hubTab==="clients" && metrics && (
             <div>
               <div style={{fontFamily:"var(--font-head)",fontSize:26,letterSpacing:"-0.04em",marginBottom:4}}>Client Roster</div>
-              <div style={{fontSize:13,color:"var(--muted)",marginBottom:28}}>{metrics.clients.active} active &middot; {metrics.clients.pipeline} in pipeline &middot; {metrics.clients.retention_rate}% retention</div>
+              <div style={{fontSize:13,color:"var(--muted)",marginBottom:28}}>{metrics.clients.active} active · {metrics.clients.pipeline} in pipeline · {metrics.clients.retention_rate}% retention</div>
               <div style={card()}>
                 <table style={{width:"100%",borderCollapse:"collapse"}}>
                   <thead>
                     <tr style={{borderBottom:`1px solid var(--border)`}}>
-                      {["Client","Package","MRR","Client since","Status"].map(h=>(
+                      {["Client","Package","MRR","Since","Status"].map(h=>(
                         <th key={h} style={{textAlign:"left",padding:"10px 14px",fontSize:11,color:"var(--muted)",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.06em",fontFamily:FB}}>{h}</th>
                       ))}
                     </tr>
@@ -413,13 +508,13 @@ export default function Hub() {
           {hubTab==="content" && (
             <div>
               <div style={{fontFamily:"var(--font-head)",fontSize:26,letterSpacing:"-0.04em",marginBottom:4}}>Generated Content</div>
-              <p style={{color:"var(--muted)",fontSize:14,marginBottom:28}}>AI-generated assets — download, deploy, or regenerate.</p>
+              <p style={{color:"var(--muted)",fontSize:14,marginBottom:28}}>All content generated by the AI agents. The website is the live implementation channel for demo purposes.</p>
               <div style={{display:"flex",flexDirection:"column",gap:12}}>
                 {[
-                  {type:"website",       label:"Business Website",       desc:"Deploy to Netlify in one click from the Live Site tab.",           apiCall:api.generate.website,       ext:".html",mime:"text/html"},
-                  {type:"business_plan", label:"Business Plan",          desc:"Full business plan with P&L projections and 90-day action plan.",  apiCall:api.generate.businessPlan,  ext:".html",mime:"text/html"},
-                  {type:"social_content",label:"30-Day Social Calendar", desc:"30 posts with captions and hashtags for LinkedIn and Instagram.", apiCall:api.generate.socialContent, ext:".json",mime:"application/json"},
-                  {type:"email_templates",label:"Email Templates",       desc:"8 professional templates — welcome, reminders, follow-ups.",       apiCall:api.generate.emailTemplates,ext:".json",mime:"application/json"},
+                  {type:"website",       label:"Business Website",       desc:"The live implementation target — updated by the management agent via the Agent Pipeline.",  apiCall:api.generate.website,       ext:".html",mime:"text/html"},
+                  {type:"business_plan", label:"Business Plan",          desc:"Full plan with P&L projections and 90-day action plan.",                                    apiCall:api.generate.businessPlan,  ext:".html",mime:"text/html"},
+                  {type:"social_content",label:"30-Day Social Calendar", desc:"30 posts with captions and hashtags — would be the social media implementation channel.",  apiCall:api.generate.socialContent, ext:".json",mime:"application/json"},
+                  {type:"email_templates",label:"Email Templates",       desc:"8 templates — would be the email implementation channel when insights call for outreach.", apiCall:api.generate.emailTemplates,ext:".json",mime:"application/json"},
                 ].map(({type,label,desc,apiCall,ext,mime})=>{
                   const out=getOutput(type);
                   const isLoading=!!genLoading[type];
@@ -430,6 +525,7 @@ export default function Hub() {
                           <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
                             <span style={{fontFamily:"var(--font-head)",fontSize:16}}>{label}</span>
                             {out&&<span style={{background:"var(--ok-bg)",color:"var(--ok)",fontSize:10,fontWeight:600,padding:"2px 8px",borderRadius:20,textTransform:"uppercase",letterSpacing:"0.04em"}}>Ready</span>}
+                            {type==="website"&&<span style={{background:"#E0F2FE",color:"#0369A1",fontSize:10,fontWeight:600,padding:"2px 8px",borderRadius:20,textTransform:"uppercase",letterSpacing:"0.04em"}}>Live channel</span>}
                           </div>
                           <p style={{fontSize:13,color:"var(--muted)",lineHeight:1.6}}>{desc}</p>
                         </div>
@@ -451,13 +547,13 @@ export default function Hub() {
           {hubTab==="integrations" && (
             <div style={{maxWidth:600}}>
               <div style={{fontFamily:"var(--font-head)",fontSize:26,letterSpacing:"-0.04em",marginBottom:4}}>Integrations</div>
-              <p style={{color:"var(--muted)",fontSize:14,marginBottom:28}}>Connected platforms powering the business.</p>
+              <p style={{color:"var(--muted)",fontSize:14,marginBottom:28}}>Connected platforms. The management agent implements changes across these channels.</p>
               <div style={card()}>
                 {[
-                  {provider:"stripe",   label:"Stripe",                  desc:"Processing $8,400/month in recurring revenue",     action:connectStripe, setupLabel:"Connect Stripe"},
-                  {provider:"google",   label:"Google Business Profile",  desc:"4.9 stars · 3,200 profile views this month",       action:connectGoogle, setupLabel:"Connect Google"},
-                  {provider:"netlify",  label:"Netlify",                  desc:"Live website deployment and updates",               action:()=>setHubTab("live-site"), setupLabel:"Set up live site"},
-                  {provider:"calendly", label:"Calendly",                 desc:"5 strategy calls booked this month",               action:()=>window.open("https://calendly.com","_blank"), setupLabel:"Set up Calendly"},
+                  {provider:"stripe",   label:"Stripe",                  desc:"Processing $8,400/month",          action:connectStripe, setupLabel:"Connect Stripe"},
+                  {provider:"google",   label:"Google Business Profile",  desc:"4.9 stars · 3,200 views/mo",       action:connectGoogle, setupLabel:"Connect Google"},
+                  {provider:"netlify",  label:"Netlify — Live Website",   desc:"Management agent deploys here",    action:()=>setHubTab("agents"), setupLabel:"Set up via Agent Pipeline"},
+                  {provider:"calendly", label:"Calendly",                 desc:"5 bookings this month",            action:()=>window.open("https://calendly.com","_blank"), setupLabel:"Set up Calendly"},
                 ].map(({provider,label,desc,action,setupLabel},i,arr)=>{
                   const connected=isConn(provider);
                   return(
@@ -487,7 +583,8 @@ export default function Hub() {
             <div style={{maxWidth:560}}>
               <div style={{fontFamily:"var(--font-head)",fontSize:26,letterSpacing:"-0.04em",marginBottom:28}}>Settings</div>
               <div style={{...card(),marginBottom:14}}>
-                <div style={{fontFamily:"var(--font-head)",fontSize:15,marginBottom:18}}>Automation modes</div>
+                <div style={{fontFamily:"var(--font-head)",fontSize:15,marginBottom:8}}>Automation modes</div>
+                <p style={{fontSize:13,color:"var(--muted)",marginBottom:16,lineHeight:1.6}}>Both agents are currently in Full Auto — they analyze and implement without waiting for approval.</p>
                 {[["discovery","Discovery"],["creation","Creation"],["marketing","Marketing"],["management","Management"]].map(([key,label],i,arr)=>(
                   <div key={key} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"12px 0",borderBottom:i<arr.length-1?`1px solid var(--border)`:"none"}}>
                     <span style={{fontSize:14,fontFamily:FB}}>{label} agent</span>

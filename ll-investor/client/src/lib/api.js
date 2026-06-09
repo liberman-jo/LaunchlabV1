@@ -57,6 +57,12 @@ export const api = {
     checkout: b=>request("POST","/subscriptions/checkout",b),
     portal:   ()=>request("POST","/subscriptions/portal"),
   },
+  agents: {
+    runMarketing:   bizId=>request("POST",`/agents/${bizId}/marketing/run`),
+    implement:      (bizId,insight)=>request("POST",`/agents/${bizId}/management/implement`,{insight}),
+    activity:       bizId=>request("GET",`/agents/${bizId}/activity`),
+    status:         bizId=>request("GET",`/agents/${bizId}/status`),
+  },
   deploy: {
     status: bizId=>request("GET",`/deploy/netlify/${bizId}`),
     deploy: bizId=>request("POST",`/deploy/netlify/${bizId}`),

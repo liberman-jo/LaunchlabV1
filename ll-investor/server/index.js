@@ -20,6 +20,7 @@ const taskRoutes     = require("./routes/tasks");
 const generateRoutes = require("./routes/generate");
 const integRoutes    = require("./routes/integrations");
 const deployRoutes   = require("./routes/deploy");
+const agentRoutes    = require("./routes/agents");
 
 // Version-specific routes (loaded if file exists)
 let subscriptionRoutes;
@@ -41,6 +42,7 @@ app.use("/api/tasks",        taskRoutes);
 app.use("/api/generate",     aiLimiter, generateRoutes);
 app.use("/api/integrations", integRoutes);
 app.use("/api/deploy",        deployRoutes);
+app.use("/api/agents",        agentRoutes);
 if (subscriptionRoutes) app.use("/api/subscriptions", subscriptionRoutes);
 
 app.get("/api/health", (req, res) => res.json({ ok: true }));
